@@ -58,10 +58,11 @@ resize in.png out.png 46         # on-OC nearest-neighbor resize (max side 46)
 resize in.png out.png 32x32      # explicit dimensions
 ```
 
-Press any key to exit the viewer. With an optional delay (positional for
+Without a delay, the viewer holds the image indefinitely — exit with
+Ctrl+C in the shell. With an optional delay (positional for
 `pngview`/`pngview_palette`, `--delay=N` flag for `multi_pngview`), the
-viewer auto-returns instead of blocking — useful when driving the OC from
-an MCP bridge or an automation script.
+viewer auto-returns after N seconds — useful when driving the OC from an
+MCP bridge or an automation script that needs its shell back.
 
 ## Hardware required
 

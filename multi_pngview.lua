@@ -289,10 +289,7 @@ end
 if delay then
   event.pull(delay, "key_down")
 else
-  while true do
-    local ev = event.pull("key_down")
-    if ev then break end
-  end
+  while true do os.sleep(60) end
 end
 
 gpu.bind(origScreen, false)
