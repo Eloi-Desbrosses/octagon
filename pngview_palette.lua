@@ -144,9 +144,70 @@ local function ditherDistance(r, g, b, r1, g1, b1, r2, g2, b2)
   return num / den
 end
 
+-- ========== Optional raw-pixel cache ==========
+-- Sidecar file <source>.oct holds the decoded RGB pixel buffer. When
+-- present and newer than the source, pngview_palette skips ocpng.loadPNG
+-- entirely — no data.inflate call, no CRC32, no energy. Median-cut and
+-- quantization still run (pure Lua, no energy cost). Cache format:
+--   "OCT1"       4 bytes magic
+--   w  (u16 BE)  image width
+--   h  (u16 BE)  image height
+--   pixels       w*h*3 bytes, row-major RGB
+local fs = require("filesystem")
+local CACHE_MAGIC = "OCT1"
+
+local function cache_path_for(src) return src .. ".oct" end
+
+local function load_cache(src)
+  local cp = cache_path_for(src)
+  if not fs.exists(cp) then return nil end
+  if fs.lastModified(cp) < fs.lastModified(src) then return nil end
+  local f = io.open(cp, "rb")
+  if not f then return nil end
+  local magic = f:read(4)
+  if magic ~= CACHE_MAGIC then f:close(); return nil end
+  local hdr = f:read(4)
+  if not hdr or #hdr < 4 then f:close(); return nil end
+  local w = (hdr:byte(1) << 8) | hdr:byte(2)
+  local h = (hdr:byte(3) << 8) | hdr:byte(4)
+  local data = f:read(w * h * 3)
+  f:close()
+  if not data or #data < w * h * 3 then return nil end
+  return {
+    w = w, h = h,
+    get = function(_, x, y)
+      if x >= w then x = w - 1 end
+      if y >= h then y = h - 1 end
+      local off = (y * w + x) * 3 + 1
+      return (data:byte(off) << 16) | (data:byte(off + 1) << 8) | data:byte(off + 2)
+    end,
+  }
+end
+
+local function write_cache(png, src)
+  local f = io.open(cache_path_for(src), "wb")
+  if not f then return end
+  f:write(CACHE_MAGIC)
+  f:write(string.char((png.w >> 8) & 0xFF, png.w & 0xFF,
+                      (png.h >> 8) & 0xFF, png.h & 0xFF))
+  for y = 0, png.h - 1 do
+    local row = {}
+    for x = 0, png.w - 1 do
+      local rgb = png:get(x, y, false)
+      row[#row + 1] = string.char((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF)
+    end
+    f:write(table.concat(row))
+  end
+  f:close()
+end
+
 -- ========== Main pipeline ==========
 
-local png = ocpng.loadPNG(filename)
+local png = load_cache(filename)
+if not png then
+  png = ocpng.loadPNG(filename)
+  pcall(write_cache, png, filename)
+end
 
 -- Sample pixels for palette. For source <=4096 px we use all; else decimate.
 local samples = {}
