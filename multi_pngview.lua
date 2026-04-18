@@ -179,22 +179,27 @@ local function ditherDistance(r, g, b, r1, g1, b1, r2, g2, b2)
   return num / den
 end
 
--- Pre-quantize the whole image to palette indices (0..15).
--- Yield every ~10 rows so we don't hit the 5 s "too long without yielding"
--- watchdog on big sources (e.g. 960x600 = 576k pixels).
-local idx = {}
+-- Pre-quantize the whole image to palette indices (0..15), stored
+-- as one byte-string per row. An integer table with 576k entries would
+-- be ~12 MB in Lua; strings of 960 bytes each are 576 KB total and fit
+-- comfortably in RAM even after the PNG decoder has allocated its own
+-- row buffers.
+-- Yield every 10 rows to keep OC's 5 s watchdog happy.
+local idx_rows = {}
 for y = 0, png.h - 1 do
+  local row = {}
   for x = 0, png.w - 1 do
     local rgb = png:get(x, y, false)
-    idx[y * png.w + x] = nearest((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF)
+    row[x + 1] = string.char(nearest((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF))
   end
+  idx_rows[y + 1] = table.concat(row)
   if y % 10 == 0 then os.sleep(0) end
 end
 
 local function getIdx(x, y)
   if x >= png.w then x = png.w - 1 end
   if y >= png.h then y = png.h - 1 end
-  return idx[y * png.w + x]
+  return idx_rows[y + 1]:byte(x + 1)
 end
 
 local function getRGB(x, y)
