@@ -23,6 +23,7 @@ in `png.lua` — see [Changes from upstream](#changes-from-upstream).
 | `pngview.lua` | Upstream viewer. Maps pixels to OC's fixed 256-color cube. Best on **T3 GPU + T3 screen**. |
 | `pngview_palette.lua` | **New.** Median-cut 16-color palette per image, pushed via `gpu.setPaletteColor`. Looks much better on T2 GPUs. |
 | `resize.lua` | **New.** On-OC PNG resizer. Writes an uncompressed IDAT so encoding doesn't cost energy. |
+| `multi_pngview.lua` | **New, prototype.** Displays a PNG across an H×V grid of screens by rebinding the GPU between tiles — one screen draws its 320×200, keeps it in VRAM, GPU moves on. |
 | `oczip.lua` | ZIP decompression program. |
 | `tools/resize_for_oc.py` | **New.** Host-side: scales a PNG down until its IDAT fits the OC's energy budget. Supports aspect-preserving `--fit thumbnail` and screen-filling `--fit crop`. |
 | `examples/batgros_46.png` | **New.** 46×45 demo. Decodes in the default ~500 energy buffer. |
@@ -151,9 +152,39 @@ A single GPU cannot go beyond 160×50 characters no matter what. You *can*
 build a **physically larger screen** in-world (`maxScreenWidth=8`,
 `maxScreenHeight=6` in config, so up to 8×6 = 48 blocks), but the
 addressable resolution stays at 160×50 — each logical pixel just covers
-more in-game blocks. To actually display more than 320×200 pixels you'd
-need multiple GPUs driving multiple screens, each handling a tile of
-the image; octagon doesn't do this.
+more in-game blocks.
+
+For **more than 320×200 px**, use multiple screens and have one GPU paint
+each in turn — that's what `multi_pngview.lua` does. See
+[Multi-screen clusters](#multi-screen-clusters).
+
+## Multi-screen clusters
+
+`multi_pngview.lua` is a prototype that displays a single PNG across an
+H×V grid of screens. Borrowed pattern from MineOS's Multiscreen.app:
+one GPU is rebound to each screen sequentially via `gpu.bind(addr, false)`,
+and every bound screen keeps its VRAM after the GPU moves on. So a single
+tier-3 GPU can paint a 2×1 cluster for 640×200 px, 2×2 for 640×400 px, etc.
+
+```
+multi_pngview --list                            # enumerate screens + addresses
+multi_pngview img.png 2 1                       # auto-pick 2 screens for H=2 V=1
+multi_pngview img.png 2 2 addrA addrB addrC addrD   # explicit row-major order
+```
+
+Quantization (median-cut to 16 colors) runs once over the whole source image
+so tile boundaries don't show palette shifts — each screen receives the same
+palette via `gpu.setPaletteColor`.
+
+Limitations (it's a prototype):
+
+- No calibration UI; row-major assumption for screen addresses. Use
+  `--list` + touch each screen to figure out which address maps where.
+- Energy budget still applies to the *decode* step (single `inflate` call
+  on the whole IDAT), so your pool must be large enough. Rendering itself
+  is cheap (no data-card cost).
+- Assumes one GPU driving all screens by rebind. With multiple GPUs, one
+  GPU per screen would be faster but the prototype doesn't do that yet.
 
 ## Host-side resizing — `tools/resize_for_oc.py`
 
@@ -224,10 +255,13 @@ Compared to [ChenThread/octagon@c9d8783](https://github.com/ChenThread/octagon):
    accounts for both CRC32 and inflate (0.105/byte), and supports both
    thumbnail and crop fit modes.
 
-5. **Examples** — `examples/batgros_46.png` (small demo) and
+5. **`multi_pngview.lua`** (prototype) — paints one image across N screens
+   by rebinding a single GPU, same approach as MineOS's Multiscreen.app.
+
+6. **Examples** — `examples/batgros_46.png` (small demo) and
    `examples/batgros_max.png` (full 320×200 screen-filler).
 
-6. **README** — install, hardware, energy, colors, resolution, tools,
+7. **README** — install, hardware, energy, colors, resolution, tools,
    troubleshooting.
 
 ## Troubleshooting
