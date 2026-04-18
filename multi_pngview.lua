@@ -25,13 +25,17 @@ local gpu = component.gpu
 local event = require("event")
 local unicode = require("unicode")
 
--- Extract --delay=N flag from args before positional parsing
+-- Extract --delay=N / --tile=WxH flags from args before positional parsing
 local raw = {...}
 local args = {}
 local delay = nil
+local tileW, tileH = nil, nil
 for _, a in ipairs(raw) do
   local n = a:match("^%-%-delay=(%d+%.?%d*)$")
-  if n then delay = tonumber(n) else args[#args + 1] = a end
+  local tw, th = a:match("^%-%-tile=(%d+)[xX](%d+)$")
+  if n then delay = tonumber(n)
+  elseif tw then tileW, tileH = tonumber(tw), tonumber(th)
+  else args[#args + 1] = a end
 end
 
 if args[1] == "--list" then
@@ -45,8 +49,12 @@ local H = tonumber(args[2] or "2")
 local V = tonumber(args[3] or "1")
 
 if not filename then
-  print("usage: multi_pngview <file.png> <H> <V> [screen_addr1 ...] [--delay=N]")
+  print("usage: multi_pngview <file.png> <H> <V> [screen_addr1 ...] [--delay=N] [--tile=WxH]")
   print("       multi_pngview --list")
+  print("")
+  print("--tile=WxH  pixels rendered per screen (default: each screen's maxResolution")
+  print("            * 2x4 braille cell = 320x200 for T3). Use e.g. 270x200 to shrink")
+  print("            the rendered area so physical screen proportions match.")
   return
 end
 
@@ -210,9 +218,21 @@ end
 
 -- ========== Render each tile ==========
 
--- Probe the per-screen resolution by binding to the first screen
-gpu.bind(screens[1], false)
-local SW, SH = gpu.maxResolution() -- chars per screen
+-- Default tile size = 270x200 pixels per screen (matches physical T3 screen
+-- aspect better than the 320x200 full-resolution default). Override via
+-- --tile=WxH. The char resolution per screen is ceil(tileW/2) x ceil(tileH/4).
+tileW = tileW or 270
+tileH = tileH or 200
+local charW = math.ceil(tileW / 2)
+local charH = math.ceil(tileH / 4)
+
+-- Grid total pixel dims
+local gridW = H * tileW
+local gridH = V * tileH
+
+-- Center source within grid (no crop): compute offset so source is middle
+local srcOffX = math.floor((gridW - png.w) / 2)
+local srcOffY = math.floor((gridH - png.h) / 2)
 
 require("term").clear()
 
@@ -220,26 +240,35 @@ for sy = 1, V do
   for sx = 1, H do
     local screen = screens[(sy - 1) * H + sx]
     gpu.bind(screen, false)
-    gpu.setResolution(SW, SH)
+    gpu.setResolution(charW, charH)
     gpu.setDepth(gpu.maxDepth())
     for i = 0, NCOLOR - 1 do
       gpu.setPaletteColor(i, (palette[i + 1][1] << 16) | (palette[i + 1][2] << 8) | palette[i + 1][3])
     end
+    -- Background = palette slot 0 (the darkest from median-cut, usually black-ish)
     gpu.setBackground(0, true)
     gpu.setForeground(0, true)
-    gpu.fill(1, 1, SW, SH, " ")
+    gpu.fill(1, 1, charW, charH, " ")
 
-    -- Pixel range for this tile: 2*SW wide, 4*SH tall
-    local x0 = (sx - 1) * SW * 2
-    local y0 = (sy - 1) * SH * 4
+    -- Tile's top-left pixel in grid coords, then offset so image is centered
+    local tileX0 = (sx - 1) * tileW
+    local tileY0 = (sy - 1) * tileH
     local curBG, curFG = -1, -1
 
-    for yc = 0, SH - 1 do
-      for xc = 0, SW - 1 do
-        local px = x0 + xc * 2
-        local py = y0 + yc * 4
-        if px >= png.w or py >= png.h then break end
-
+    for yc = 0, charH - 1 do
+      for xc = 0, charW - 1 do
+        -- Grid-space pixel position for this char's top-left
+        local gx = tileX0 + xc * 2
+        local gy = tileY0 + yc * 4
+        -- Source-space position (shifted for centering)
+        local sxp = gx - srcOffX
+        local syp = gy - srcOffY
+        -- If this char's block is entirely outside source, skip (leaves background)
+        if sxp + 1 < 0 or syp + 3 < 0 or sxp >= png.w or syp >= png.h then
+          -- skip, leave as palette[0] background
+        else
+          local px = sxp
+          local py = syp
         local pi = {
           getIdx(px + 1, py + 3), getIdx(px, py + 3),
           getIdx(px + 1, py + 2), getIdx(px, py + 2),
@@ -287,6 +316,7 @@ for sy = 1, V do
         if bg ~= curBG then gpu.setBackground(bg, true); curBG = bg end
         if fg ~= curFG then gpu.setForeground(fg, true); curFG = fg end
         gpu.set(xc + 1, yc + 1, q[chr + 1])
+        end -- end of 'else' branch (in-bounds path)
       end
       if yc % 5 == 0 then os.sleep(0) end
     end
