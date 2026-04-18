@@ -26,8 +26,8 @@ this requires Lua 5.3 at the moment
 but it does NOT require a data card
 ]]
 
-local crc = dofile("./crc32.lua")
-local inflate = dofile("./inflate.lua")
+local crc = require("crc32")
+local inflate = require("inflate")
 
 local ocpng = {}
 
