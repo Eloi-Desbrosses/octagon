@@ -179,13 +179,16 @@ local function ditherDistance(r, g, b, r1, g1, b1, r2, g2, b2)
   return num / den
 end
 
--- Pre-quantize the whole image to palette indices (0..15)
+-- Pre-quantize the whole image to palette indices (0..15).
+-- Yield every ~10 rows so we don't hit the 5 s "too long without yielding"
+-- watchdog on big sources (e.g. 960x600 = 576k pixels).
 local idx = {}
 for y = 0, png.h - 1 do
   for x = 0, png.w - 1 do
     local rgb = png:get(x, y, false)
     idx[y * png.w + x] = nearest((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF)
   end
+  if y % 10 == 0 then os.sleep(0) end
 end
 
 local function getIdx(x, y)
@@ -280,6 +283,7 @@ for sy = 1, V do
         if fg ~= curFG then gpu.setForeground(fg, true); curFG = fg end
         gpu.set(xc + 1, yc + 1, q[chr + 1])
       end
+      if yc % 5 == 0 then os.sleep(0) end
     end
   end
 end
