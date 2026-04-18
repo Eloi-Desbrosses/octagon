@@ -27,7 +27,8 @@ in `png.lua` — see [Changes from upstream](#changes-from-upstream).
 | `oczip.lua` | ZIP decompression program. |
 | `tools/resize_for_oc.py` | **New.** Host-side: scales a PNG down until its IDAT fits the OC's energy budget. Supports aspect-preserving `--fit thumbnail` and screen-filling `--fit crop`. |
 | `examples/batgros_46.png` | **New.** 46×45 demo. Decodes in the default ~500 energy buffer. |
-| `examples/batgros_max.png` | **New.** 320×200 crop-filled demo. Needs a ~10 k energy pool to decode (see [Energy](#energy-budget-in-one-page)). |
+| `examples/batgros_fit.png` | **New.** 200×196 aspect-preserved demo (no crop, black bars left/right on a 320×200 screen). Needs ~6 k energy to decode. |
+| `examples/batgros_max.png` | **New.** 320×200 crop-filled demo (fills the screen, edges of the source cropped). Needs ~10 k energy to decode. |
 
 ## Install
 
