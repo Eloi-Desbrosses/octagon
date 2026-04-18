@@ -170,6 +170,9 @@ local unpackedcomb = ""
 local unpacked = ""
 --for x=1,png_bwidth do pline = pline .. string.char(0) end
 for y=0,png_h-1 do
+	-- yield every few rows so OC's 5 s watchdog doesn't kill the defilter pass
+	-- for big sources (e.g. 960x600 = 576 k bytes of per-character string concat).
+	if (y & 7) == 0 and os and os.sleep then os.sleep(0) end
 	if false and #unpacked > png_bwidth*6 then
 		unpackedcomb = unpackedcomb .. unpacked:sub(1, #unpacked - (png_bwidth*3) - 1)
 		unpacked = unpacked:sub(#unpacked - (png_bwidth*3))
