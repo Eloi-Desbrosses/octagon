@@ -32,7 +32,13 @@ def extract_idat(png_bytes: bytes) -> int:
 
 
 def budget_to_max_idat(energy: float) -> float:
-    return (energy - 6) / 0.1
+    # octagon's png.lua runs CRC32 over each chunk BEFORE it inflates the IDAT.
+    # For a single-IDAT photo both calls hit the same data-card byte cost:
+    #   inflate: 6     + 0.1   per byte   (dataCardComplex + ComplexByte)
+    #   crc32:   0.2   + 0.005 per byte   (dataCardTrivial + TrivialByte)
+    # So the effective per-byte cost to get the IDAT through png.loadPNG is
+    # ~0.105, plus ~6.2 fixed.
+    return (energy - 6.2) / 0.105
 
 
 def main():
