@@ -165,81 +165,86 @@ end
 
 -- defilter
 if sysnative then print("Defiltering...") end
-local x,y
-local unpackedcomb = ""
-local unpacked = ""
---for x=1,png_bwidth do pline = pline .. string.char(0) end
-for y=0,png_h-1 do
-	-- yield every few rows so OC's 5 s watchdog doesn't kill the defilter pass
-	-- for big sources (e.g. 960x600 = 576 k bytes of per-character string concat).
+-- Rewritten to accumulate each row's bytes in an integer table (curr[])
+-- and concat into a table of row strings (row_strings[]). Upstream did
+-- per-byte 'unpacked = unpacked .. string.char(b)' which is O(n^2) Lua
+-- string concat -- fine for tiny icons, catastrophic for a 960x600 source
+-- (576 k bytes through that path, blows the 5 s watchdog before finishing
+-- a single row). Tables + table.concat are O(n) and yielding between rows
+-- keeps the scheduler happy.
+local x, y
+local row_strings = {} -- one string per completed row
+local prev_row_str = "" -- previous row's raw bytes (for filter lookbacks)
+local fstride = png_fstride
+local bwidth = png_bwidth
+local function p_byte(s, i)
+	local b = s:byte(i)
+	if b == nil then return 0 end
+	return b
+end
+for y = 0, png_h - 1 do
 	if (y & 7) == 0 and os and os.sleep then os.sleep(0) end
-	if false and #unpacked > png_bwidth*6 then
-		unpackedcomb = unpackedcomb .. unpacked:sub(1, #unpacked - (png_bwidth*3) - 1)
-		unpacked = unpacked:sub(#unpacked - (png_bwidth*3))
-	end
-	local line = png_data:sub(1+y*(png_bwidth+1), (y+1)*(png_bwidth+1))
+	local line = png_data:sub(1 + y * (bwidth + 1), (y + 1) * (bwidth + 1))
 	local ftyp = line:byte(1)
+	local curr -- integer-byte table for this row
 
-	--print(ftyp)
 	if ftyp == 0 then
-		-- stored
-		unpacked = unpacked .. line:sub(2)
+		-- stored: just unpack line[2..] into curr
+		curr = {}
+		for x = 2, #line do curr[x - 1] = line:byte(x) end
 
 	elseif ftyp == 1 then
 		-- dx
-		unpacked = unpacked .. line:sub(2, 2+png_fstride-1)
-		for x=2+png_fstride,#line do
-			unpacked = unpacked .. string.char(0xFF&(
-				line:byte(x) + 
-				unpacked:byte(#unpacked-png_fstride+1)))
+		curr = {}
+		for x = 2, 2 + fstride - 1 do curr[x - 1] = line:byte(x) end
+		for x = 2 + fstride, #line do
+			curr[x - 1] = 0xFF & (line:byte(x) + curr[x - 1 - fstride])
 		end
 
 	elseif ftyp == 2 then
 		-- dy
-		for x=2,#line do
-			unpacked = unpacked .. string.char(0xFF&(
-				line:byte(x) + 
-				unpacked:byte(#unpacked-png_bwidth+1)))
+		curr = {}
+		for x = 2, #line do
+			curr[x - 1] = 0xFF & (line:byte(x) + p_byte(prev_row_str, x - 1))
 		end
 
 	elseif ftyp == 3 then
 		-- average xy
-		for x=2,2+png_fstride-1 do
-			unpacked = unpacked .. string.char(0xFF&(
-				line:byte(x) + 
-				(unpacked:byte(#unpacked-png_bwidth+1)>>1)))
+		curr = {}
+		for x = 2, 2 + fstride - 1 do
+			curr[x - 1] = 0xFF & (line:byte(x) + (p_byte(prev_row_str, x - 1) >> 1))
 		end
-		for x=2+png_fstride,#line do
-			unpacked = unpacked .. string.char(0xFF&(
-				line:byte(x) + 
-				((unpacked:byte(#unpacked-png_bwidth+1)
-					+ unpacked:byte(#unpacked-png_fstride+1)
-					)>>1)))
+		for x = 2 + fstride, #line do
+			curr[x - 1] = 0xFF & (line:byte(x) + ((p_byte(prev_row_str, x - 1) + curr[x - 1 - fstride]) >> 1))
 		end
 
 	elseif ftyp == 4 then
 		-- paeth
-
-		for x=2,2+png_fstride-1 do
-			unpacked = unpacked .. string.char(0xFF&(
-				line:byte(x) + 
-				paeth(0, unpacked:byte(#unpacked-png_bwidth+1), 0)))
+		curr = {}
+		for x = 2, 2 + fstride - 1 do
+			curr[x - 1] = 0xFF & (line:byte(x) + paeth(0, p_byte(prev_row_str, x - 1), 0))
 		end
-		for x=2+png_fstride,#line do
-			unpacked = unpacked .. string.char(0xFF&(
-				line:byte(x) + 
-				paeth(
-					unpacked:byte(#unpacked-png_fstride+1),
-					unpacked:byte(#unpacked-png_bwidth+1),
-					unpacked:byte(#unpacked-png_bwidth+1-png_fstride)
-				)))
+		for x = 2 + fstride, #line do
+			curr[x - 1] = 0xFF & (line:byte(x) + paeth(
+				curr[x - 1 - fstride],
+				p_byte(prev_row_str, x - 1),
+				p_byte(prev_row_str, x - 1 - fstride)
+			))
 		end
 
 	else
 		print(ftyp)
 		error("unhandled filter selection")
 	end
+
+	-- Convert curr[] back to a row string
+	local chunk = {}
+	for i = 1, bwidth do chunk[i] = string.char(curr[i]) end
+	local row_str = table.concat(chunk)
+	row_strings[y + 1] = row_str
+	prev_row_str = row_str
 end
+local unpacked = table.concat(row_strings)
 
 -- bail out if not OC
 if sysnative then return end
