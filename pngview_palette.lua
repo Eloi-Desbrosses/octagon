@@ -144,12 +144,9 @@ end
 
 -- ========== Main pipeline ==========
 
-io.write("loading PNG... "); io.flush()
 local png = ocpng.loadPNG(filename)
-print(png.w .. "x" .. png.h)
 
 -- Sample pixels for palette. For source <=4096 px we use all; else decimate.
-io.write("sampling pixels... "); io.flush()
 local samples = {}
 local total = png.w * png.h
 local step = 1
@@ -160,14 +157,10 @@ for y = 0, png.h - 1, step do
     samples[#samples + 1] = {(rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF}
   end
 end
-print(#samples .. " samples")
 
-io.write("median-cut " .. NCOLOR .. " colors... "); io.flush()
 local palette = median_cut(samples, NCOLOR)
-print("done")
 
 -- Pre-index the full image against the chosen palette
-io.write("quantizing... "); io.flush()
 local idx = {} -- y*w + x -> palette index (0..15)
 for y = 0, png.h - 1 do
   for x = 0, png.w - 1 do
@@ -175,7 +168,10 @@ for y = 0, png.h - 1 do
     idx[y * png.w + x] = nearest(palette, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF)
   end
 end
-print("done")
+
+-- Clear the terminal BEFORE shrinking resolution so stale prompt text doesn't
+-- persist in the new coordinate space.
+require("term").clear()
 
 -- Push palette to GPU slots 0..15
 local function hexcol(p) return (p[1] << 16) | (p[2] << 8) | p[3] end
@@ -201,7 +197,6 @@ local function getRGB(x, y)
   return png:get(x, y, false)
 end
 
-io.write("rendering... "); io.flush()
 local curBG, curFG = -1, -1
 for yc = 0, charH - 1 do
   local runStr = ""
@@ -260,7 +255,6 @@ for yc = 0, charH - 1 do
     gpu.set(xc + 1, yc + 1, q[chr + 1])
   end
 end
-print("done. press any key.")
 
 while true do
   local ev, _, _, code = event.pull("key_down")
