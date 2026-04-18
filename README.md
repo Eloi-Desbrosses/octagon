@@ -20,8 +20,10 @@ one path fix in `png.lua` — see [Changes from upstream](#changes-from-upstream
 | `png.lua` | PNG reader. `require("crc32")` + `require("inflate")`. |
 | `pngview.lua` | Upstream viewer. Maps pixels to OC's fixed 256-color cube. Best on **T3 GPU + T3 screen**. |
 | `pngview_palette.lua` | **New.** Median-cut 16-color palette per image, pushed via `gpu.setPaletteColor`. Looks much better on T2 GPUs. |
+| `resize.lua` | **New.** On-OC PNG resizer. Writes an uncompressed IDAT so encoding doesn't cost energy — the energy cap is on the *input* (must be inflatable) and on the output IDAT being re-inflated at display time. |
 | `oczip.lua` | ZIP decompression program. |
 | `tools/resize_for_oc.py` | **New.** Host-side: shrinks a PNG until its IDAT fits the OC's energy budget. |
+| `examples/batgros_46.png` | **New.** 46×45 demo PNG, largest size that decodes on a T1 case (IDAT 4686, inflate cost 474 / 488 available). |
 
 ## Install
 
@@ -101,6 +103,34 @@ is the largest payload the target OC can inflate in a single `data.inflate`
 call without the buffer going dry.
 
 Requires Python ≥ 3.8 and Pillow.
+
+## On-OC resizing — `resize.lua`
+
+If you want a smaller copy of a PNG that already lives on the OC:
+
+```
+resize in.png out.png 46           # aspect-preserved, longest side = 46 px
+resize in.png out.png 32x32        # explicit dimensions
+```
+
+Uses nearest-neighbor resampling. Emits a valid PNG with an
+**uncompressed** IDAT (zlib of `BTYPE=00` / "stored" DEFLATE blocks), so the
+encode step does **not** touch `data.deflate` — it can't, because deflate's
+energy cost profile is the same as inflate and would blow the same budget
+we're trying to dodge.
+
+The catch: the output IDAT is larger than a properly compressed PNG would
+be (essentially: raw filtered scanlines), which means its *inflate* cost
+at display time is `6 + filtered_bytes × 0.1`. For a 46×45 RGB image that's
+~632 energy — more than a T1 buffer holds. `resize.lua` prints the expected
+inflate cost after writing, so you can sanity-check.
+
+Summary of when to use which:
+
+| Scenario | Tool |
+|---|---|
+| You have a big PNG on disk and want to drop it into the OC | `tools/resize_for_oc.py` on the host — optimal compression, smallest IDAT. |
+| You already have a small PNG on the OC and want to scale it further | `resize.lua` on the OC — works, but the output is less compressed. |
 
 ## Changes from upstream
 
