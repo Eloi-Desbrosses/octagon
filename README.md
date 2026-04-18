@@ -64,23 +64,6 @@ Ctrl+C in the shell. With an optional delay (positional for
 viewer auto-returns after N seconds — useful when driving the OC from an
 MCP bridge or an automation script that needs its shell back.
 
-### Sidecar cache (`.oct` files)
-
-`pngview_palette` and `multi_pngview` write a sidecar file
-`<image>.png.oct` on their first render. It's the raw decoded RGB pixel
-buffer with a tiny `"OCT1"` header. On the next render, if the cache is
-newer than the source, the viewer **skips `ocpng.loadPNG` entirely** —
-no `data.inflate`, no CRC32 — and goes straight to palette quantization
-and rendering.
-
-That removes the `6 + 0.105 × IDAT_bytes` energy cost of every display,
-which for a 320×200 Batgros-like image is ~9 k energy per render. If you
-cycle through a few images, the cache pays for itself almost instantly.
-
-Invalidation is by mtime: touch the source PNG and the cache regenerates.
-Delete `*.png.oct` to force a full rebuild. Cache size is
-`8 + 3 × w × h` bytes (≈ 192 KB for a 320×200 image).
-
 ## Hardware required
 
 | Part | Min | Recommended | Why |
