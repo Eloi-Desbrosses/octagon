@@ -244,7 +244,18 @@ for y = 0, png_h - 1 do
 	row_strings[y + 1] = row_str
 	prev_row_str = row_str
 end
-local unpacked = table.concat(row_strings)
+-- Keep rows as separate strings to avoid allocating a single w*h*ccount
+-- buffer via table.concat -- a 960x600 RGB image is 1.7 MB, which blows
+-- OC's per-call memory budget. Expose a :byte(i) method over the rows so
+-- downstream pixel accessors don't have to change.
+local unpacked = { _rows = row_strings, _bw = bwidth }
+function unpacked:byte(i)
+	local p = i - 1
+	local row = (p // self._bw) + 1
+	local col = (p % self._bw) + 1
+	local s = self._rows[row]
+	return s and s:byte(col)
+end
 
 -- bail out if not OC
 if sysnative then return end
