@@ -5,15 +5,17 @@
 -- 16-color palette tuned to the source image and pushes it to the GPU via
 -- setPaletteColor. Works on T2 and T3 GPUs (both expose 16 palette slots).
 --
--- Usage:  pngview_palette <file.png>
---         pngview_palette <file.png> --ncolor 16    (default)
+-- Usage:  pngview_palette <file.png> [delay_seconds]
+--         pngview_palette <file.png>       -- blocks until any key
+--         pngview_palette <file.png> 5     -- displays for 5s then returns
 --
 -- Source: adapted from ChenThread/octagon pngview.lua
 
 local args = {...}
 local filename = args[1]
+local delay = tonumber(args[2])
 if not filename then
-  print("usage: pngview_palette <file.png>")
+  print("usage: pngview_palette <file.png> [delay_seconds]")
   return
 end
 
@@ -256,9 +258,13 @@ for yc = 0, charH - 1 do
   end
 end
 
-while true do
-  local ev, _, _, code = event.pull("key_down")
-  if ev then break end
+if delay then
+  event.pull(delay, "key_down")
+else
+  while true do
+    local ev, _, _, code = event.pull("key_down")
+    if ev then break end
+  end
 end
 
 gpu.setResolution(gpu.maxResolution())

@@ -309,11 +309,18 @@ end
 local image = loadImage(args[1])
 drawImage(image)
 
-while true do
+-- Optional second arg: seconds to display before returning. Without it,
+-- block until the user presses Q.
+local delay = tonumber(args[2])
+if delay then
+  event.pull(delay, "key_down") -- returns nil on timeout, table on keypress
+else
+  while true do
     local name,addr,char,key,player = event.pull("key_down")
     if key == 0x10 then
         break
     end
+  end
 end
 
 gpu.setBackground(0, false)

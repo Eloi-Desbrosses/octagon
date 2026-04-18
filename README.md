@@ -50,12 +50,18 @@ works, dropping files into the save folder while the OC is off works.
 
 ```
 pngview foo.png                  # upstream: OC's fixed 256-color cube
+pngview foo.png 10               # auto-return after 10 s
 pngview_palette foo.png          # per-image 16-color palette (better on T2)
+pngview_palette foo.png 5        # auto-return after 5 s
+multi_pngview foo.png 3 3 --delay=8    # multi-screen, hold 8 s
 resize in.png out.png 46         # on-OC nearest-neighbor resize (max side 46)
 resize in.png out.png 32x32      # explicit dimensions
 ```
 
-Press any key to exit the viewer.
+Press any key to exit the viewer. With an optional delay (positional for
+`pngview`/`pngview_palette`, `--delay=N` flag for `multi_pngview`), the
+viewer auto-returns instead of blocking — useful when driving the OC from
+an MCP bridge or an automation script.
 
 ## Hardware required
 

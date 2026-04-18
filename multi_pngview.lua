@@ -13,6 +13,9 @@
 --   multi_pngview <file.png> <H> <V>                 # auto-picks screens in component.list() order
 --   multi_pngview <file.png> <H> <V> <a1> <a2> ...   # explicit row-major addresses
 --
+-- Flags (any position):
+--   --delay=N       display for N seconds then return (default: block until key)
+--
 -- Calibrate once with `multi_pngview --list` to see screen addresses; then
 -- touch each screen in-game and note which one lit up to decide the order.
 
@@ -22,7 +25,14 @@ local gpu = component.gpu
 local event = require("event")
 local unicode = require("unicode")
 
-local args = {...}
+-- Extract --delay=N flag from args before positional parsing
+local raw = {...}
+local args = {}
+local delay = nil
+for _, a in ipairs(raw) do
+  local n = a:match("^%-%-delay=(%d+%.?%d*)$")
+  if n then delay = tonumber(n) else args[#args + 1] = a end
+end
 
 if args[1] == "--list" then
   print("connected screens (in component.list order):")
@@ -35,7 +45,7 @@ local H = tonumber(args[2] or "2")
 local V = tonumber(args[3] or "1")
 
 if not filename then
-  print("usage: multi_pngview <file.png> <H> <V> [screen_addr1 ...]")
+  print("usage: multi_pngview <file.png> <H> <V> [screen_addr1 ...] [--delay=N]")
   print("       multi_pngview --list")
   return
 end
@@ -274,11 +284,15 @@ for sy = 1, V do
   end
 end
 
--- ========== Wait for key, then restore ==========
+-- ========== Wait for key or delay, then restore ==========
 
-while true do
-  local ev = event.pull("key_down")
-  if ev then break end
+if delay then
+  event.pull(delay, "key_down")
+else
+  while true do
+    local ev = event.pull("key_down")
+    if ev then break end
+  end
 end
 
 gpu.bind(origScreen, false)
