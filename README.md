@@ -168,31 +168,111 @@ each in turn — that's what `multi_pngview.lua` does. See
 
 ## Multi-screen clusters
 
-`multi_pngview.lua` is a prototype that displays a single PNG across an
-H×V grid of screens. Borrowed pattern from MineOS's Multiscreen.app:
-one GPU is rebound to each screen sequentially via `gpu.bind(addr, false)`,
-and every bound screen keeps its VRAM after the GPU moves on. So a single
-tier-3 GPU can paint a 2×1 cluster for 640×200 px, 2×2 for 640×400 px, etc.
+`multi_pngview.lua` displays a single PNG across an H×V grid of screens.
+Borrowed pattern from MineOS's Multiscreen.app: one GPU is rebound to
+each screen sequentially via `gpu.bind(addr, false)`, and every bound
+screen keeps its VRAM after the GPU moves on. So one T3 GPU can paint a
+2×1 cluster for 540×200 px, 3×3 for 810×600 px, 4×4 for 1080×800 px, etc.
 
 ```
-multi_pngview --list                            # enumerate screens + addresses
-multi_pngview img.png 2 1                       # auto-pick 2 screens for H=2 V=1
-multi_pngview img.png 2 2 addrA addrB addrC addrD   # explicit row-major order
+multi_pngview --list                              # enumerate screens + addresses
+multi_pngview img.png 3 3                         # auto-pick 9 screens
+multi_pngview img.png 3 3 addr1 addr2 ...         # explicit row-major order
+multi_pngview img.png 3 3 --delay=60              # auto-return after 60 s
+multi_pngview img.png 3 3 --tile=320x200          # override per-screen pixel dims
 ```
 
-Quantization (median-cut to 16 colors) runs once over the whole source image
-so tile boundaries don't show palette shifts — each screen receives the same
-palette via `gpu.setPaletteColor`.
+Quantization (median-cut to 16 colors) runs once over the whole source
+image so tile boundaries don't show palette shifts — each screen gets the
+same palette via `gpu.setPaletteColor`.
 
-Limitations (it's a prototype):
+### Per-tile pixel size (`--tile=WxH`)
 
-- No calibration UI; row-major assumption for screen addresses. Use
-  `--list` + touch each screen to figure out which address maps where.
-- Energy budget still applies to the *decode* step (single `inflate` call
-  on the whole IDAT), so your pool must be large enough. Rendering itself
-  is cheap (no data-card cost).
-- Assumes one GPU driving all screens by rebind. With multiple GPUs, one
-  GPU per screen would be faster but the prototype doesn't do that yet.
+Defaults to **270×200**, which matches the physical aspect of a T3 screen
+better than the full 320×200 GPU resolution. Override with `--tile=320x200`
+if you want to use every last char column on each screen (physical image
+stretches slightly wider), or `--tile=200x200` for a square tile on very
+tall multi-block screens.
+
+Char resolution per screen = `ceil(tileW/2) × ceil(tileH/4)`. The default
+270×200 → 135×50 chars per screen, leaving 25 unused char cols that
+blend into the tile's background color (palette slot 0 = darkest from the
+median-cut, usually near-black).
+
+### No-crop centering
+
+If the source PNG is smaller than `H × tileW` by `V × tileH`, it's drawn
+**centered** with palette-0 padding around it — no cropping. That matches
+what Pillow's `ImageOps.fit` with *thumbnail* mode produces host-side.
+Useful when the image aspect doesn't perfectly match the grid aspect.
+
+### Memory and grid size
+
+Each source pixel goes through two heavy buffers during render:
+
+1. `png.lua` defilter keeps one string per row of decoded RGB → total
+   size `height × width × 3` bytes.
+2. Quantized palette indices (`idx_rows`) → `height × width` bytes.
+
+Peak RAM ≈ **4 × width × height bytes**. A stock-ish T3 server reports
+~4 MB free after boot, so:
+
+| Grid | Tile | Canvas | Peak RAM | Fits 4 MB free? |
+|---|---|---|---:|---|
+| 3×3 | 270×200 | 810×600 | 1.9 MB | ✅ |
+| 4×4 | 270×200 | 1080×800 | 3.5 MB | ✅ (tight) |
+| 5×5 | 270×200 | 1350×1000 | 5.4 MB | ❌ OOM |
+| 6×6 | 270×200 | 1620×1200 | 7.8 MB | ❌ OOM |
+| 7×7 | 270×200 | 1890×1400 | 10.6 MB | ❌ OOM |
+
+If your server RAM is larger (RAM-upgraded modpack or beefier memory
+config), scale accordingly. The component limit is separate — a T3 server
+with Component Bus cards lifts the component cap to ~64, enough for 7×7
+on the component side, but RAM will cut you off before then unless you
+raise it explicitly.
+
+### Rendering time
+
+Roughly **2–3 s per 1000 char cells** on a T3 APU. A 4×4 at 270×200 is
+16 × 135 × 50 = 108 k cells → ~3–4 min end-to-end including decode.
+Most of that is pure-Lua quantize + dither — scales linearly in canvas
+pixels.
+
+### Calibration: who-is-who
+
+The row-major address list you pass to `multi_pngview` has to match the
+physical wall layout. To figure that out, run `calibrate.lua` once:
+
+```
+wget https://raw.githubusercontent.com/Eloi-Desbrosses/octagon/master/calibrate.lua /home/calibrate.lua
+./calibrate.lua
+```
+
+It paints each screen with a distinct color and a big 1–N digit (two
+digits for grids bigger than 9). Walk up to the wall, take a screenshot,
+and read off the indices. The N-th digit corresponds to the N-th address
+returned by `component.list("screen")`, which is also what `--list` prints.
+
+Build your row-major `multi_pngview` argv from that map. Example for a
+3×3 where the wall looks like:
+
+```
+ 2 9 8
+ 3 10 6
+ 7 5 4
+```
+
+Pass `<screens[2]> <screens[9]> <screens[8]> <screens[3]> ...` to
+`multi_pngview`. Screens not in the visible grid (the console, standalone
+screens in the world) just don't show up in the screenshot.
+
+### Other limitations
+
+- Energy budget applies to the one-shot `inflate` on the whole IDAT plus
+  the CRC32 on each chunk. For a 1080×800 source that's ~60 k energy.
+- RAM is the real ceiling — see the table above.
+- One GPU drives all screens via rebinding. Multiple GPUs could parallelize
+  but the current code is sequential.
 
 ## Host-side resizing — `tools/resize_for_oc.py`
 
